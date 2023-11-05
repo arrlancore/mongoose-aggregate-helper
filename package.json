@@ -7,7 +7,8 @@
     "mongoose": ">=5.0.0"
   },
   "scripts": {
-    "test": "npx jest"
+    "test": "npx jest",
+    "compile": "npx tsc"
   },
   "keywords": [
     "mongoose",
