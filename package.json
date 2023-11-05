@@ -1,11 +1,19 @@
 {
   "name": "mongoose-aggregate-helper",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Simplify the mongoose aggregate",
-  "main": "index.js",
+  "main": "dist/index.js",
   "peerDependencies": {
     "mongoose": ">=5.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arrlancore/mongoose-aggregate-helper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arrlancore/mongoose-aggregate-helper/issues"
+  },
+  "homepage": "https://github.com/arrlancore/mongoose-aggregate-helper#readme",
   "scripts": {
     "test": "npx jest",
     "compile": "npx tsc"
