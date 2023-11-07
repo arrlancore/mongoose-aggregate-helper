@@ -8,6 +8,7 @@
 - Supports joins, matches, sorts, limits, skips, groups
 - Type-safe queries with TypeScript support
 - Simplifies complex aggregations with method chaining
+- Convenient counting of documents in a pipeline
 
 ## Installation
 
@@ -37,7 +38,7 @@ import aggregate from 'mongoose-aggregate-helper';
 const MyModel = require('./models/myModel');
 
 // Creating an aggregation pipeline
-const result = aggregate(MyModel)
+const aggregateBuilder = aggregate(MyModel)
   .join({
     collection: 'relatedCollection',
     link: ['localField', 'foreignField'],
@@ -45,10 +46,11 @@ const result = aggregate(MyModel)
   })
   .match({ status: 'active' })
   .sort({ createdAt: -1 })
-  .limit(10)
-  .exec();
+  .limit(10);
 
-// result is a promise that resolves to the aggregation result
+const count = await aggregateBuilder.count(); // <{total: countDocument}>
+const result = await aggregateBuilder.exec(); // Array<Document>
+
 ```
 
 ## API Reference
@@ -58,6 +60,8 @@ const result = aggregate(MyModel)
 - `config.collection`: The name of the collection to join.
 - `config.link`: An array with the local and foreign field names.
 - `config.select`: The fields to select from the joined collection.
+- `config.populate`: Default to `true` or can assign a string for the new object field name.
+- `config.preserveNullAndEmptyArrays`: To control unwinding (boolean)
 
 ### `match<U>(condition)`
 
@@ -78,6 +82,17 @@ const result = aggregate(MyModel)
 ### `group(config)`
 
 - `config`: The configuration for the group stage.
+
+### `select(fields)`
+
+- `fields`: The fields to include in the results. Can be a space-separated string (e.g., 'field1 field2') or an object specifying the inclusion of fields (e.g., `{ field1: 1, field2: 1 }`). If not called, all fields are included by default.
+
+### `count(as)`
+
+- `as`: The name of the count field name. Default to `total`.
+
+### `exec()`
+To execute your aggregate pipeline and get the result.
 
 ## Contributing
 

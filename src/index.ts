@@ -7,6 +7,8 @@ export interface JoinConfig {
   collection: string;
   link: [string, string?]; // Tuple with local and optional foreign field
   select?: FieldSelection;
+  populate?: boolean | 'string';
+  preserveNullAndEmptyArrays?: boolean;
 }
 
 export interface BaseMatchCondition {
@@ -22,7 +24,7 @@ export interface GroupConfig {
   [key: string]: any;
 }
 
-class AggregateBuilder<T> {
+class Aggregate<T> {
   private model: mongoose.Model<T>;
   private pipeline: PipelineStage[] = [];
   private hasGrouped: boolean = false;
@@ -53,14 +55,41 @@ class AggregateBuilder<T> {
         let: { localId: `$${localField}` },
         pipeline: [
           { $match: { $expr: { $eq: [`$${foreignField}`, `$$localId`] } } },
-          { $project: this.parseFieldSelection(config.select) },
+          { $project: this.parseFieldSelection(this.ensureIdIncluded(config.select!)) },
         ],
         as,
       },
     };
 
     this.pipeline.push(lookupStage);
+
+    const populate = config.populate !== undefined ? config.populate : true;
+    const preserveNullAndEmptyArrays = config.preserveNullAndEmptyArrays !== undefined ? config.preserveNullAndEmptyArrays : true;
+    // Add an $unwind stage if populate is true
+    if (populate) {
+      const unwindStage = {
+        $unwind: {
+          path: `$${as}`,
+          preserveNullAndEmptyArrays: preserveNullAndEmptyArrays
+        }
+      };
+      this.pipeline.push(unwindStage);
+    }
+
     return this;
+  }
+
+  ensureIdIncluded(select: FieldSelection) {
+    if (typeof select === 'string') {
+      // If _id is not included in the string, add it
+      if (!select.includes('_id')) {
+        select = '_id ' + select;
+      }
+    } else if (typeof select === 'object' && !select.hasOwnProperty('_id')) {
+      // If _id is not a key in the object, add it
+      select = { _id: 1, ...select };
+    }
+    return select;
   }
 
   // Allow the user to specify the type for the match condition
@@ -95,6 +124,13 @@ class AggregateBuilder<T> {
     return this;
   }
 
+  select(fields: FieldSelection): this {
+    // Add a $project stage to the pipeline with the specified fields
+    const projectStage = { $project: this.parseFieldSelection(this.ensureIdIncluded(fields)) };
+    this.pipeline.push(projectStage);
+    return this;
+  }
+
   private parseFieldSelection(selection?: FieldSelection): object {
     if (typeof selection === 'string') {
       return selection
@@ -107,10 +143,27 @@ class AggregateBuilder<T> {
   async exec(): Promise<T[]> {
     return this.model.aggregate(this.pipeline).exec();
   }
+
+  // Method to count documents with an optional alias for the count field
+  async count(as = 'total') {
+    // Clone the pipeline and remove $skip and $limit stages
+    const countPipeline = this.pipeline.filter(stage => 
+      !stage.hasOwnProperty('$skip') && !stage.hasOwnProperty('$limit')
+    );
+
+    // Add the $count stage with the alias
+    countPipeline.push({ $count: as });
+
+    // Execute the count pipeline
+    const countResult = await this.model.aggregate(countPipeline).exec();
+
+    // Return the count or 0 if no documents are found
+    return countResult.length > 0 ? countResult[0][as] : 0;
+  }
 }
 
-function aggregate<T>(model: mongoose.Model<T>): AggregateBuilder<T> {
-  return new AggregateBuilder(model);
+function aggregate<T>(model: mongoose.Model<T>): Aggregate<T> {
+  return new Aggregate(model);
 }
 
 export default aggregate;

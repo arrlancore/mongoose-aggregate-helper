@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-class AggregateBuilder {
+class Aggregate {
     constructor(model) {
         this.pipeline = [];
         this.hasGrouped = false;
@@ -35,13 +35,38 @@ class AggregateBuilder {
                 let: { localId: `$${localField}` },
                 pipeline: [
                     { $match: { $expr: { $eq: [`$${foreignField}`, `$$localId`] } } },
-                    { $project: this.parseFieldSelection(config.select) },
+                    { $project: this.parseFieldSelection(this.ensureIdIncluded(config.select)) },
                 ],
                 as,
             },
         };
         this.pipeline.push(lookupStage);
+        const populate = config.populate !== undefined ? config.populate : true;
+        const preserveNullAndEmptyArrays = config.preserveNullAndEmptyArrays !== undefined ? config.preserveNullAndEmptyArrays : true;
+        // Add an $unwind stage if populate is true
+        if (populate) {
+            const unwindStage = {
+                $unwind: {
+                    path: `$${as}`,
+                    preserveNullAndEmptyArrays: preserveNullAndEmptyArrays
+                }
+            };
+            this.pipeline.push(unwindStage);
+        }
         return this;
+    }
+    ensureIdIncluded(select) {
+        if (typeof select === 'string') {
+            // If _id is not included in the string, add it
+            if (!select.includes('_id')) {
+                select = '_id ' + select;
+            }
+        }
+        else if (typeof select === 'object' && !select.hasOwnProperty('_id')) {
+            // If _id is not a key in the object, add it
+            select = Object.assign({ _id: 1 }, select);
+        }
+        return select;
     }
     // Allow the user to specify the type for the match condition
     match(matchCondition) {
@@ -69,6 +94,12 @@ class AggregateBuilder {
         this.pipeline.push({ $group: config });
         return this;
     }
+    select(fields) {
+        // Add a $project stage to the pipeline with the specified fields
+        const projectStage = { $project: this.parseFieldSelection(this.ensureIdIncluded(fields)) };
+        this.pipeline.push(projectStage);
+        return this;
+    }
     parseFieldSelection(selection) {
         if (typeof selection === 'string') {
             return selection
@@ -82,8 +113,21 @@ class AggregateBuilder {
             return this.model.aggregate(this.pipeline).exec();
         });
     }
+    // Method to count documents with an optional alias for the count field
+    count(as = 'total') {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Clone the pipeline and remove $skip and $limit stages
+            const countPipeline = this.pipeline.filter(stage => !stage.hasOwnProperty('$skip') && !stage.hasOwnProperty('$limit'));
+            // Add the $count stage with the alias
+            countPipeline.push({ $count: as });
+            // Execute the count pipeline
+            const countResult = yield this.model.aggregate(countPipeline).exec();
+            // Return the count or 0 if no documents are found
+            return countResult.length > 0 ? countResult[0][as] : 0;
+        });
+    }
 }
 function aggregate(model) {
-    return new AggregateBuilder(model);
+    return new Aggregate(model);
 }
 exports.default = aggregate;

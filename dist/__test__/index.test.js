@@ -50,9 +50,15 @@ describe('AggregateBuilder', () => {
                     let: { localId: '$userId' },
                     pipeline: [
                         { $match: { $expr: { $eq: ['$_id', '$$localId'] } } },
-                        { $project: { name: 1, age: 1 } },
+                        { $project: { _id: 1, name: 1, age: 1 } },
                     ],
                     as: 'otherCollectionDetails',
+                },
+            },
+            {
+                $unwind: {
+                    path: "$otherCollectionDetails",
+                    preserveNullAndEmptyArrays: true,
                 },
             },
         ]);
@@ -146,6 +152,11 @@ describe('AggregateBuilder', () => {
             total: { $sum: 1 },
             averageAge: { $avg: '$age' },
         });
+        const countMock = jest.fn().mockResolvedValue([{ total: 2 }]);
+        builder.count = countMock;
+        const count = yield builder.count();
+        expect(count).toEqual([{ total: 2 }]);
+        expect(countMock).toHaveBeenCalled();
         const results = yield builder.exec();
         // Check if aggregate was called with the correct pipeline
         expect(aggregateMock).toHaveBeenCalledWith([
@@ -156,9 +167,15 @@ describe('AggregateBuilder', () => {
                     let: { localId: '$userId' },
                     pipeline: [
                         { $match: { $expr: { $eq: ['$_id', '$$localId'] } } },
-                        { $project: { name: 1, age: 1 } },
+                        { $project: { _id: 1, name: 1, age: 1 } },
                     ],
                     as: 'otherCollectionDetails',
+                },
+            },
+            {
+                $unwind: {
+                    path: "$otherCollectionDetails",
+                    preserveNullAndEmptyArrays: true,
                 },
             },
             { $sort: { age: -1 } },
@@ -175,4 +192,57 @@ describe('AggregateBuilder', () => {
         // Check that the results match the mock data
         expect(results).toEqual(mockData);
     }));
+    it('should not add an unwind stage when populate is set to false', () => __awaiter(void 0, void 0, void 0, function* () {
+        const builder = (0, __1.default)(TestModel).join({
+            collection: 'otherCollection',
+            link: ['userId'],
+            select: 'name age',
+            populate: false,
+        });
+        yield builder.exec();
+        // Check that the $unwind stage is not added
+        expect(aggregateMock).not.toHaveBeenCalledWith({
+            $unwind: expect.anything(),
+        });
+    }));
+    it('should allow setting preserveNullAndEmptyArrays to false', () => __awaiter(void 0, void 0, void 0, function* () {
+        const builder = (0, __1.default)(TestModel).join({
+            collection: 'otherCollection',
+            link: ['userId'],
+            select: 'name age',
+            preserveNullAndEmptyArrays: false,
+        });
+        yield builder.exec();
+        // Check if the $unwind stage is added with preserveNullAndEmptyArrays set to false
+        expect(aggregateMock).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({
+                $unwind: {
+                    path: '$otherCollectionDetails',
+                    preserveNullAndEmptyArrays: false,
+                },
+            }),
+        ]));
+    }));
+});
+describe('ensureIdIncluded', () => {
+    it('should add _id to a string of select fields if not present', () => {
+        const select = 'name age';
+        const selectWithId = (0, __1.default)(TestModel).ensureIdIncluded(select);
+        expect(selectWithId).toBe('_id name age');
+    });
+    it('should not modify a string of select fields if _id is already present', () => {
+        const select = '_id name age';
+        const selectWithId = (0, __1.default)(TestModel).ensureIdIncluded(select);
+        expect(selectWithId).toBe(select);
+    });
+    it('should add _id to an object of select fields if not present', () => {
+        const select = { name: 1, age: 1 };
+        const selectWithId = (0, __1.default)(TestModel).ensureIdIncluded(select);
+        expect(selectWithId).toEqual({ _id: 1, name: 1, age: 1 });
+    });
+    it('should not modify an object of select fields if _id is already present', () => {
+        const select = { _id: 1, name: 1, age: 1 };
+        const selectWithId = (0, __1.default)(TestModel).ensureIdIncluded(select);
+        expect(selectWithId).toEqual(select);
+    });
 });
