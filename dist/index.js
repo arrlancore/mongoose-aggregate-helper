@@ -8,7 +8,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
+const mongoose_1 = __importDefault(require("mongoose"));
 class Aggregate {
     constructor(model) {
         this.pipeline = [];
@@ -25,16 +29,19 @@ class Aggregate {
         if (config.select && typeof config.select !== 'string' && typeof config.select !== 'object') {
             throw new TypeError('Select must be a string or an object.');
         }
-        const localField = config.link[0];
-        const foreignField = config.link[1] || '_id';
+        // Determine if we need to convert the local or foreign field to ObjectId
+        const localFieldIsObjectId = this.isObjectId(this.model.schema.paths[config.link[0]]);
+        const foreignFieldIsObjectId = this.isObjectId(mongoose_1.default.model(config.collection).schema.paths[config.link[1] || '_id']);
+        const localField = localFieldIsObjectId ? { $toObjectId: `$${config.link[0]}` } : `$${config.link[0]}`;
+        const foreignField = foreignFieldIsObjectId ? '$_id' : `$${config.link[1] || '_id'}`;
         const as = `${config.collection}Details`;
         // Construct the $lookup stage
         const lookupStage = {
             $lookup: {
                 from: config.collection,
-                let: { localId: `$${localField}` },
+                let: { localId: localField },
                 pipeline: [
-                    { $match: { $expr: { $eq: [`$${foreignField}`, `$$localId`] } } },
+                    { $match: { $expr: { $eq: [foreignField, `$$localId`] } } },
                     { $project: this.parseFieldSelection(this.ensureIdIncluded(config.select)) },
                 ],
                 as,
@@ -54,6 +61,9 @@ class Aggregate {
             this.pipeline.push(unwindStage);
         }
         return this;
+    }
+    isObjectId(schemaPath) {
+        return schemaPath instanceof mongoose_1.default.Schema.Types.ObjectId;
     }
     ensureIdIncluded(select) {
         if (typeof select === 'string') {

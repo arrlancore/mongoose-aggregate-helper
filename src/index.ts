@@ -44,17 +44,22 @@ class Aggregate<T> {
       throw new TypeError('Select must be a string or an object.');
     }
 
-    const localField = config.link[0];
-    const foreignField = config.link[1] || '_id';
+    // Determine if we need to convert the local or foreign field to ObjectId
+    const localFieldIsObjectId = this.isObjectId(this.model.schema.paths[config.link[0]]);
+    const foreignFieldIsObjectId = this.isObjectId(mongoose.model(config.collection).schema.paths[config.link[1] || '_id']);
+
+    const localField = localFieldIsObjectId ? { $toObjectId: `$${config.link[0]}` } : `$${config.link[0]}`;
+    const foreignField = foreignFieldIsObjectId ? '$_id' : `$${config.link[1] || '_id'}`;
+
     const as = `${config.collection}Details`;
 
     // Construct the $lookup stage
     const lookupStage = {
       $lookup: {
         from: config.collection,
-        let: { localId: `$${localField}` },
+        let: { localId: localField },
         pipeline: [
-          { $match: { $expr: { $eq: [`$${foreignField}`, `$$localId`] } } },
+          { $match: { $expr: { $eq: [foreignField, `$$localId`] } } },
           { $project: this.parseFieldSelection(this.ensureIdIncluded(config.select!)) },
         ],
         as,
@@ -77,6 +82,10 @@ class Aggregate<T> {
     }
 
     return this;
+  }
+
+  isObjectId(schemaPath: mongoose.SchemaType | undefined): boolean {
+    return schemaPath instanceof mongoose.Schema.Types.ObjectId;
   }
 
   ensureIdIncluded(select: FieldSelection) {

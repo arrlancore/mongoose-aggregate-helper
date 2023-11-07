@@ -29,6 +29,21 @@ aggregateMock.mockImplementation(() => ({
     skip: jest.fn().mockReturnThis(),
     group: jest.fn().mockReturnThis(),
 }));
+// Mock mongoose.model to return a schema with paths
+jest.mock('mongoose', () => {
+    const originalMongoose = jest.requireActual('mongoose');
+    const _model = originalMongoose.model.bind(originalMongoose);
+    originalMongoose.model = jest.fn((name, schema) => {
+        if (originalMongoose.models[name]) {
+            return originalMongoose.models[name];
+        }
+        if (schema) {
+            return _model(name, schema);
+        }
+        return _model(name, new originalMongoose.Schema({}));
+    });
+    return originalMongoose;
+});
 describe('AggregateBuilder', () => {
     // Reset the mocks before each test
     beforeEach(() => {

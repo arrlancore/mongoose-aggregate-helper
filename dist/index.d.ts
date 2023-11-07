@@ -25,6 +25,7 @@ declare class Aggregate<T> {
     private hasGrouped;
     constructor(model: mongoose.Model<T>);
     join(config: JoinConfig): this;
+    isObjectId(schemaPath: mongoose.SchemaType | undefined): boolean;
     ensureIdIncluded(select: FieldSelection): FieldSelection;
     match<U extends BaseMatchCondition = BaseMatchCondition>(matchCondition: U): this;
     sort(config: SortConfig): this;

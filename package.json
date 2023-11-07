@@ -1,6 +1,6 @@
 {
   "name": "mongoose-aggregate-helper",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Simplify the mongoose aggregate",
   "main": "dist/index.js",
   "peerDependencies": {
