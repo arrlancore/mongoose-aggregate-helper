@@ -8,62 +8,90 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const mongoose_1 = __importDefault(require("mongoose"));
 class Aggregate {
     constructor(model) {
         this.pipeline = [];
         this.hasGrouped = false;
         this.model = model;
     }
+    /**
+     *
+     * @param config
+     * if config.link[0] start with # we will convert it to be objectId
+     * @returns
+     */
     join(config) {
         if (typeof config.collection !== 'string') {
             throw new TypeError('Collection name must be a string. Received: ' + config.collection);
         }
-        if (!Array.isArray(config.link) || !config.link.every((field) => typeof field === 'string')) {
+        if (!Array.isArray(config.link) ||
+            !config.link.every((field) => typeof field === 'string')) {
             throw new TypeError('Link must be an array of strings.');
         }
-        if (config.select && typeof config.select !== 'string' && typeof config.select !== 'object') {
+        if (config.select &&
+            typeof config.select !== 'string' &&
+            typeof config.select !== 'object') {
             throw new TypeError('Select must be a string or an object.');
         }
-        // Determine if we need to convert the local or foreign field to ObjectId
-        const localFieldIsObjectId = this.isObjectId(this.model.schema.paths[config.link[0]]);
-        const foreignFieldIsObjectId = this.isObjectId(mongoose_1.default.model(config.collection).schema.paths[config.link[1] || '_id']);
-        const localField = localFieldIsObjectId ? { $toObjectId: `$${config.link[0]}` } : `$${config.link[0]}`;
-        const foreignField = foreignFieldIsObjectId ? '$_id' : `$${config.link[1] || '_id'}`;
-        const as = `${config.collection}Details`;
+        const localFieldNeedsObjectId = config.link[0].startsWith('#');
+        const localField = localFieldNeedsObjectId
+            ? config.link[0].substring(1)
+            : config.link[0];
+        const foreignField = config.link[1] || '_id';
+        // Add a field conversion stage if necessary
+        const localFieldObjectId = `${localField}ObjectID`;
+        if (localFieldNeedsObjectId) {
+            const convertToLocalObjectIdStage = {
+                $addFields: {
+                    [localFieldObjectId]: { $toObjectId: `$${localField}` },
+                },
+            };
+            this.pipeline.push(convertToLocalObjectIdStage);
+        }
+        const as = config.populate === 'string' ? config.populate : localField; // Use a more descriptive alias
         // Construct the $lookup stage
         const lookupStage = {
             $lookup: {
                 from: config.collection,
-                let: { localId: localField },
+                let: {
+                    localId: localFieldNeedsObjectId
+                        ? `$${localFieldObjectId}`
+                        : `$${localField}`,
+                },
                 pipeline: [
-                    { $match: { $expr: { $eq: [foreignField, `$$localId`] } } },
-                    { $project: this.parseFieldSelection(this.ensureIdIncluded(config.select)) },
+                    { $match: { $expr: { $eq: [`$${foreignField}`, `$$localId`] } } },
+                    {
+                        $project: this.parseFieldSelection(this.ensureIdIncluded(config.select)),
+                    },
                 ],
                 as,
             },
         };
         this.pipeline.push(lookupStage);
         const populate = config.populate !== undefined ? config.populate : true;
-        const preserveNullAndEmptyArrays = config.preserveNullAndEmptyArrays !== undefined ? config.preserveNullAndEmptyArrays : true;
+        const preserveNullAndEmptyArrays = config.preserveNullAndEmptyArrays !== undefined
+            ? config.preserveNullAndEmptyArrays
+            : true;
         // Add an $unwind stage if populate is true
         if (populate) {
             const unwindStage = {
                 $unwind: {
                     path: `$${as}`,
-                    preserveNullAndEmptyArrays: preserveNullAndEmptyArrays
-                }
+                    preserveNullAndEmptyArrays: preserveNullAndEmptyArrays,
+                },
             };
             this.pipeline.push(unwindStage);
         }
+        if (localFieldNeedsObjectId) {
+            const removeFieldObjectId = {
+                $project: {
+                    [localFieldObjectId]: 0,
+                },
+            };
+            this.pipeline.push(removeFieldObjectId);
+        }
         return this;
-    }
-    isObjectId(schemaPath) {
-        return schemaPath instanceof mongoose_1.default.Schema.Types.ObjectId;
     }
     ensureIdIncluded(select) {
         if (typeof select === 'string') {
@@ -106,7 +134,9 @@ class Aggregate {
     }
     select(fields) {
         // Add a $project stage to the pipeline with the specified fields
-        const projectStage = { $project: this.parseFieldSelection(this.ensureIdIncluded(fields)) };
+        const projectStage = {
+            $project: this.parseFieldSelection(this.ensureIdIncluded(fields)),
+        };
         this.pipeline.push(projectStage);
         return this;
     }
@@ -127,7 +157,7 @@ class Aggregate {
     count(as = 'total') {
         return __awaiter(this, void 0, void 0, function* () {
             // Clone the pipeline and remove $skip and $limit stages
-            const countPipeline = this.pipeline.filter(stage => !stage.hasOwnProperty('$skip') && !stage.hasOwnProperty('$limit'));
+            const countPipeline = this.pipeline.filter((stage) => !stage.hasOwnProperty('$skip') && !stage.hasOwnProperty('$limit'));
             // Add the $count stage with the alias
             countPipeline.push({ $count: as });
             // Execute the count pipeline
@@ -135,6 +165,10 @@ class Aggregate {
             // Return the count or 0 if no documents are found
             return countResult.length > 0 ? countResult[0][as] : 0;
         });
+    }
+    // incase need the raw pipeline
+    get aggregatePipeline() {
+        return this.pipeline;
     }
 }
 function aggregate(model) {

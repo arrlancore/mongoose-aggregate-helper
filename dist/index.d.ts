@@ -24,8 +24,13 @@ declare class Aggregate<T> {
     private pipeline;
     private hasGrouped;
     constructor(model: mongoose.Model<T>);
+    /**
+     *
+     * @param config
+     * if config.link[0] start with # we will convert it to be objectId
+     * @returns
+     */
     join(config: JoinConfig): this;
-    isObjectId(schemaPath: mongoose.SchemaType | undefined): boolean;
     ensureIdIncluded(select: FieldSelection): FieldSelection;
     match<U extends BaseMatchCondition = BaseMatchCondition>(matchCondition: U): this;
     sort(config: SortConfig): this;
@@ -36,6 +41,7 @@ declare class Aggregate<T> {
     private parseFieldSelection;
     exec(): Promise<T[]>;
     count(as?: string): Promise<any>;
+    get aggregatePipeline(): mongoose.PipelineStage[];
 }
 declare function aggregate<T>(model: mongoose.Model<T>): Aggregate<T>;
 export default aggregate;

@@ -63,15 +63,56 @@ describe('AggregateBuilder', () => {
             { $match: { $expr: { $eq: ['$_id', '$$localId'] } } }, // This line should match the implementation
             { $project: { _id: 1, name: 1, age: 1 } },
           ],
-          as: 'otherCollectionDetails',
+          as: 'userId',
         },
       },
       {
         $unwind: {
-          path: "$otherCollectionDetails",
+          path: "$userId",
           preserveNullAndEmptyArrays: true,
          },
        },
+    ]);
+  });
+
+  it('should create a join pipeline stage with ObjectId conversion', async () => {
+    const builder = aggregate(TestModel).join({
+      collection: 'otherCollection',
+      link: ['#userId'], // Notice the '#' indicating an ObjectId conversion
+      select: 'name age',
+    });
+
+    await builder.exec();
+
+    // Check if aggregate was called with the correct pipeline
+    expect(mongoose.Model.aggregate).toHaveBeenCalledWith([
+      {
+        $addFields: {
+          userIdObjectID: { $toObjectId: '$userId' }, // This line should match the implementation
+        },
+      },
+      {
+        $lookup: {
+          from: 'otherCollection',
+          let: { localId: '$userIdObjectID' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$localId'] } } },
+            { $project: { _id: 1, name: 1, age: 1 } },
+          ],
+          as: 'userId', // The 'as' field should match the localField without the '#' prefix
+        },
+      },
+      {
+        $unwind: {
+          path: "$userId",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          userIdObjectID: 0, // This line should match the implementation
+        },
+      },
     ]);
   });
 
@@ -205,12 +246,12 @@ describe('AggregateBuilder', () => {
             { $match: { $expr: { $eq: ['$_id', '$$localId'] } } },
             { $project: { _id: 1, name: 1, age: 1 } },
           ],
-          as: 'otherCollectionDetails',
+          as: 'userId',
         },
       },
       {
        $unwind: {
-         path: "$otherCollectionDetails",
+         path: "$userId",
          preserveNullAndEmptyArrays: true,
         },
       },
@@ -262,7 +303,7 @@ describe('AggregateBuilder', () => {
       expect.arrayContaining([
         expect.objectContaining({
           $unwind: {
-            path: '$otherCollectionDetails',
+            path: '$userId',
             preserveNullAndEmptyArrays: false,
           },
         }),
@@ -294,5 +335,121 @@ describe('ensureIdIncluded', () => {
     const select: FieldSelection = { _id: 1, name: 1, age: 1 };
     const selectWithId = aggregate(TestModel).ensureIdIncluded(select);
     expect(selectWithId).toEqual(select);
+  });
+});
+
+describe('AggregateBuilder - ObjectId Conversion', () => {
+  it('should convert a local field prefixed with # to ObjectId', async () => {
+    // Setup the builder with the join configuration that requires ObjectId conversion
+    const builder = aggregate(TestModel).join({
+      collection: 'otherCollection',
+      link: ['#userId'], // Local field prefixed with # to indicate ObjectId conversion
+      select: 'name age',
+    });
+
+    // Execute the builder to trigger the aggregation pipeline
+    await builder.exec();
+
+    // Check if the pipeline includes the $addFields stage for ObjectId conversion
+    expect(aggregateMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $addFields: {
+            userIdObjectID: { $toObjectId: '$userId' },
+          },
+        }),
+        expect.objectContaining({
+          $lookup: {
+            from: 'otherCollection',
+            let: { localId: '$userIdObjectID' }, // This should use the converted ObjectId
+            pipeline: expect.any(Array),
+            as: 'userId',
+          },
+        }),
+        expect.objectContaining({
+          $project: {
+            userIdObjectID: 0, // This should remove the temporary ObjectId field
+          },
+        }),
+      ])
+    );
+
+    // Check if the $unwind stage uses the converted ObjectId
+    expect(aggregateMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $unwind: {
+            path: '$userId',
+            preserveNullAndEmptyArrays: true,
+          },
+        }),
+      ])
+    );
+  });
+});
+
+describe('AggregateBuilder - No Unwind Stage When Populate is False', () => {
+  it('should not add an $unwind stage when populate is set to false', async () => {
+    // Setup the builder with the join configuration that has populate set to false
+    const builder = aggregate(TestModel).join({
+      collection: 'otherCollection',
+      link: ['userId'],
+      select: 'name age',
+      populate: false, // Explicitly set populate to false
+    });
+
+    // Execute the builder to trigger the aggregation pipeline
+    await builder.exec();
+
+    // Check if the pipeline does not include the $unwind stage
+    expect(aggregateMock).toHaveBeenCalledWith(
+      expect.not.arrayContaining([
+        expect.objectContaining({
+          $unwind: expect.anything(),
+        }),
+      ])
+    );
+
+    // Alternatively, check that the $unwind stage is not present in the pipeline
+    const pipeline = builder.aggregatePipeline; // Assuming there's a getter for the pipeline
+    const hasUnwindStage = pipeline.some(stage => stage.hasOwnProperty('$unwind'));
+    expect(hasUnwindStage).toBe(false);
+  });
+});
+
+describe('AggregateBuilder - PreserveNullAndEmptyArrays Option', () => {
+  it('should set preserveNullAndEmptyArrays to false when specified', async () => {
+    // Setup the builder with the join configuration that has preserveNullAndEmptyArrays set to false
+    const builder = aggregate(TestModel).join({
+      collection: 'otherCollection',
+      link: ['userId'],
+      select: 'name age',
+      preserveNullAndEmptyArrays: false, // Explicitly set preserveNullAndEmptyArrays to false
+    });
+
+    // Execute the builder to trigger the aggregation pipeline
+    await builder.exec();
+
+    // Check if the $unwind stage is added with preserveNullAndEmptyArrays set to false
+    expect(aggregateMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $unwind: {
+            path: expect.any(String),
+            preserveNullAndEmptyArrays: false,
+          },
+        }),
+      ])
+    );
+
+    // Alternatively, check the actual pipeline array for the correct $unwind stage
+    const pipeline = builder.aggregatePipeline; // Assuming there's a getter for the pipeline
+    const unwindStage = pipeline.find(stage => stage.hasOwnProperty('$unwind'));
+    expect(unwindStage).toEqual({
+      $unwind: {
+        path: expect.any(String), // Replace with actual path if known
+        preserveNullAndEmptyArrays: false,
+      },
+    });
   });
 });
